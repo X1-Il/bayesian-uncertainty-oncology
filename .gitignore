@@ -1,0 +1,18 @@
+.venv/
+.idea/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Model weights: tens of MB of binaries, fully regenerable from `main.py --full`.
+checkpoints/
+
+# Raw datasets are never committed; see README for the real-data drop-in.
+data/raw/
+
+# Run logs
+*.log
+
+# figures/ and results/ ARE tracked on purpose: the plots, and the JSON they are
+# built from, are small, and they let a reader see the study's output -- and
+# re-render every figure via `main.py --plots-only` -- without a 90-min retrain.

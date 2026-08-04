@@ -1,0 +1,10 @@
+{
+  "aleatoric_lower_bound": 0.5138297160032822,
+  "aleatoric_upper_bound": 0.5473699666492536,
+  "bracket_width": 0.03354025064597144,
+  "bracket_width_relative": 0.06527503100999552,
+  "corr_z_hat_vs_z": 0.8442652691137149,
+  "rmse_z": 0.5449747183898556,
+  "mean_abs_posterior_error": 0.10052653331489941,
+  "note": "Lower bound = analytic oracle (z perfectly identified). Upper bound = matched-filter estimator (suboptimal, so it over-states noise). A correct aleatoric estimate should fall inside this interval."
+}
