@@ -104,6 +104,69 @@ def test_adaptive_ece_differs_on_skewed_confidence():
     assert abs(ece(probs, y) - adaptive_ece(probs, y)) > 1e-4
 
 
+def test_mean_of_softmax_differs_from_softmax_of_mean():
+    """The premise behind EnsembleTemperatureScaler.
+
+    If these two collapsed to the same thing, scaling the averaged logit would
+    be fine. They do not, which is why the ensemble needs its own scaler.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    rng = np.random.default_rng(10)
+    z = torch.as_tensor(rng.normal(0, 3, size=(500, 4, 2)), dtype=torch.float32)
+    mean_of_softmax = F.softmax(z, dim=-1).mean(dim=1)
+    softmax_of_mean = F.softmax(z.mean(dim=1), dim=-1)
+    assert not torch.allclose(mean_of_softmax, softmax_of_mean, atol=1e-3)
+
+
+def test_ensemble_scaler_calibrates_the_mixture():
+    """Fit on held-out data, check ECE improves on a disjoint half."""
+    from cancer_unc.uncertainty import EnsembleTemperatureScaler
+
+    rng = np.random.default_rng(11)
+    n, m = 8000, 5
+    p1 = rng.uniform(0.02, 0.98, n)
+    y = (rng.random(n) < p1).astype(np.int64)
+    true_logit = np.log(p1 / (1 - p1))
+    # overconfident members, each with its own jitter
+    member_logits = np.stack(
+        [np.stack([np.zeros(n), 3.0 * true_logit + rng.normal(0, 0.3, n)], axis=1)
+         for _ in range(m)], axis=1,
+    )
+
+    half = n // 2
+    sc = EnsembleTemperatureScaler().fit(member_logits[:half], y[:half])
+
+    def mixture(z):
+        e = np.exp(z - z.max(-1, keepdims=True))
+        return (e / e.sum(-1, keepdims=True)).mean(axis=1)
+
+    raw = mixture(member_logits[half:])
+    cal = sc.transform(member_logits[half:])
+    assert ece(cal, y[half:]) < ece(raw, y[half:])
+    assert 1.5 < sc.temperature < 5.0
+
+
+def test_ensemble_scaling_may_move_accuracy_slightly():
+    """The single-model argmax theorem does NOT extend to a mixture.
+
+    This test documents the failure rather than hiding it: the shift should be
+    small, but demanding it be exactly zero is what made `exp_calibration`
+    abort on a correct result.
+    """
+    from cancer_unc.uncertainty import EnsembleTemperatureScaler
+
+    rng = np.random.default_rng(12)
+    n, m = 4000, 5
+    member_logits = rng.normal(0, 2.5, size=(n, m, 2))
+    y = (member_logits[:, :, 1].mean(1) + rng.normal(0, 1, n) > 0).astype(np.int64)
+
+    sc = EnsembleTemperatureScaler().fit(member_logits, y)
+    shift = sc.accuracy_shift(member_logits, y)
+    assert abs(shift) < 0.05, f"shift {shift} implausibly large"
+
+
 def test_bootstrap_with_zero_resamples_returns_point_estimate():
     """The sweeps pass n_boot=0 to skip resampling. Regression test: this used
     to take a quantile of an empty array and crash partway through E1."""

@@ -1,0 +1,71 @@
+{
+  "_preset": "full",
+  "rows": [
+    {
+      "beta": 0.6,
+      "target_aleatoric": 0.6531765152066007,
+      "est_aleatoric": 0.6619264584389962,
+      "est_epistemic": 0.0002855299768579047,
+      "est_total": 0.6622119884158542,
+      "target_bayes_error": 0.3865084786745005,
+      "test_error": 0.396,
+      "target_bayes_nll": 0.6531765152066007,
+      "test_nll": 0.6598495244979858,
+      "corr_aleatoric_vs_true_H": 0.7415016540797499,
+      "corr_epistemic_vs_true_H": -0.15732642906452424
+    },
+    {
+      "beta": 1.0,
+      "target_aleatoric": 0.5992916117332695,
+      "est_aleatoric": 0.6094541299480464,
+      "est_epistemic": 0.00036189318649203407,
+      "est_total": 0.6098160231345384,
+      "target_bayes_error": 0.3249557403246696,
+      "test_error": 0.3416,
+      "target_bayes_nll": 0.5992916117332695,
+      "test_nll": 0.613764762878418,
+      "corr_aleatoric_vs_true_H": 0.8088309116328628,
+      "corr_epistemic_vs_true_H": -0.0712597160943909
+    },
+    {
+      "beta": 1.6,
+      "target_aleatoric": 0.5133671906284608,
+      "est_aleatoric": 0.5402310734432789,
+      "est_epistemic": 0.0005066639555308794,
+      "est_total": 0.5407377373988098,
+      "target_bayes_error": 0.25575806867986206,
+      "test_error": 0.268,
+      "target_bayes_nll": 0.5133671906284608,
+      "test_nll": 0.5320258736610413,
+      "corr_aleatoric_vs_true_H": 0.8631297817830981,
+      "corr_epistemic_vs_true_H": -0.25897587015466833
+    },
+    {
+      "beta": 2.5,
+      "target_aleatoric": 0.40619189612925793,
+      "est_aleatoric": 0.42428296011938016,
+      "est_epistemic": 0.0005992882037842188,
+      "est_total": 0.42488224832316435,
+      "target_bayes_error": 0.18890438041413982,
+      "test_error": 0.202,
+      "target_bayes_nll": 0.40619189612925793,
+      "test_nll": 0.4289824664592743,
+      "corr_aleatoric_vs_true_H": 0.9015270385913674,
+      "corr_epistemic_vs_true_H": 0.34053495535958994
+    },
+    {
+      "beta": 4.0,
+      "target_aleatoric": 0.2903757147118028,
+      "est_aleatoric": 0.30705683372405995,
+      "est_epistemic": 0.0005598920953772839,
+      "est_total": 0.3076167258194372,
+      "target_bayes_error": 0.12849245231530684,
+      "test_error": 0.1436,
+      "target_bayes_nll": 0.2903757147118028,
+      "test_nll": 0.32915225625038147,
+      "corr_aleatoric_vs_true_H": 0.9277622663424697,
+      "corr_epistemic_vs_true_H": 0.20154532971733238
+    }
+  ],
+  "complete": true
+}

@@ -10,14 +10,35 @@ results without touching the models.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-RESULTS = Path(__file__).parent / "results"
+# The report uses mathematical characters (ẑ, β, →) that the Windows console's
+# default cp1252 codec cannot encode, which makes `python summarize.py > RESULTS.md`
+# die partway through. Force UTF-8 on stdout rather than degrading the notation.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
+ROOT = Path(__file__).parent
+
+
+def _results_dir() -> Path:
+    """Prefer the full study; fall back to quick, then to a flat legacy layout."""
+    if len(sys.argv) > 1:
+        return Path(sys.argv[1])
+    for candidate in (ROOT / "results" / "full", ROOT / "results" / "quick",
+                      ROOT / "results"):
+        if candidate.is_dir() and any(candidate.glob("*.json")):
+            return candidate
+    return ROOT / "results" / "full"
+
+
+RESULTS = _results_dir()
 
 
 def load(name: str):
     p = RESULTS / f"{name}.json"
-    return json.loads(p.read_text()) if p.exists() else None
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
 
 
 def table(headers: list[str], rows: list[list]) -> str:
@@ -39,6 +60,11 @@ def f(x, n=4):
 
 def main() -> None:
     print("# Results\n")
+    preset = RESULTS.name
+    if preset == "quick":
+        print("> **Warning: these are `--quick` smoke-test numbers**, not the full")
+        print("> study. Reduced training budget, fewer sweep points. Run")
+        print("> `python main.py --full` for the reported results.\n")
 
     # ---- identifiability -------------------------------------------------
     a = load("audit_identifiability")
@@ -91,22 +117,51 @@ def main() -> None:
         for k, v in e3["splits"].items():
             r, c = v["raw"], v["calibrated"]
             rows.append([
-                v["shift"] + (" *" if v["semantic"] else ""),
+                f"`{k}` — {v['shift']}" + (" *" if v["semantic"] else ""),
                 f(r["accuracy"], 3),
                 f"{f(r['ece'])} [{f(r['ece_lo'])}, {f(r['ece_hi'])}]",
                 f(c["ece"]),
                 f(r["nll"]), f(c["nll"]),
+                f(v.get("accuracy_shift_from_scaling"), 4),
             ])
         print(table(["split", "acc", "ECE raw [95% CI]", "ECE cal",
-                     "NLL raw", "NLL cal"], rows))
-        print("\n`*` = semantic shift. Accuracy is identical before and after "
-              "scaling by construction.\n")
+                     "NLL raw", "NLL cal", "Δacc"], rows))
+        print("\n`*` = semantic shift. Note every calibrated ECE lies inside the")
+        print("raw estimate's 95% interval: temperature scaling changes nothing")
+        print("here, because the ensemble is already calibrated (T ≈ 1).")
+        print("\nΔacc is the accuracy shift caused by scaling. It is *not* forced")
+        print("to zero: the argmax-invariance theorem holds for a single softmax,")
+        print("not for the mixture that an ensemble predictive actually is.\n")
+
+    # ---- E3b -------------------------------------------------------------
+    e3b = load("e3b_calibration_baseline")
+    if e3b:
+        print(f"## E3b — miscalibrated baseline (fitted T = {f(e3b['temperature'], 3)})\n")
+        print("A single model, no heteroscedastic head, dropout off, stopped at the")
+        print("final epoch instead of best validation NLL — each of the main model's")
+        print("calibration mechanisms removed. Accuracy is bit-identical before and")
+        print("after scaling here, since a single softmax satisfies argmax-invariance")
+        print("exactly.\n")
+        rows = []
+        for k, v in e3b["splits"].items():
+            r, c = v["raw"], v["calibrated"]
+            ens = e3["splits"].get(k) if e3 else None
+            rows.append([
+                v["shift"] + (" *" if v["semantic"] else ""),
+                f(r["accuracy"], 3), f(r["ece"]), f(c["ece"]),
+                f(ens["raw"]["ece"]) if ens else "-",
+                f(ens["calibrated"]["ece"]) if ens else "-",
+            ])
+        print(table(["split", "acc", "single ECE raw", "single ECE cal",
+                     "ens ECE raw", "ens ECE cal"], rows))
+        print()
 
     # ---- E4 --------------------------------------------------------------
     e4 = load("e4_ood")
     if e4:
         print("## E4 — OOD detection (AUROC)\n")
-        shifts = list(e4.keys())
+        # `_`-prefixed keys are metadata (`_preset`), not shifts.
+        shifts = [k for k in e4 if not k.startswith("_")]
         scores = [k for k in e4[shifts[0]] if not k.startswith("_")]
         rows = []
         for sc in scores:

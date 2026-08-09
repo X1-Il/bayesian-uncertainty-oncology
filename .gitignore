@@ -13,6 +13,26 @@ data/raw/
 # Run logs
 *.log
 
-# figures/ and results/ ARE tracked on purpose: the plots, and the JSON they are
-# built from, are small, and they let a reader see the study's output -- and
-# re-render every figure via `main.py --plots-only` -- without a 90-min retrain.
+# results/full and figures/full ARE tracked on purpose: the plots, and the JSON
+# they are built from, are small, and they let a reader see the study's output --
+# and re-render every figure via `main.py --plots-only` -- without a 2-hour
+# retrain.
+#
+# results/quick and figures/quick are smoke-test output. They exist to exercise
+# the pipeline, are an order of magnitude cheaper to produce, and would be
+# mistaken for real results if committed alongside the full study.
+results/quick/
+figures/quick/
+
+# LaTeX build products
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/o.txt
+paper/e.txt
+paper/out.txt
+paper/*.bbl
+paper/*.blg
+paper/*.synctex.gz
+# report.pdf IS tracked: it is the deliverable, and a reader should be able to
+# open it from GitHub without installing a TeX distribution.

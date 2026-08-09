@@ -36,8 +36,9 @@ from .data import (
 )
 from .eval import compare_confidence_functions, risk_coverage_curve, selective_report
 from .models import BayesianCNN
-from .train import TrainConfig, train_ensemble
+from .train import TrainConfig, train_ensemble, train_one
 from .uncertainty import (
+    EnsembleTemperatureScaler,
     MahalanobisScorer,
     TemperatureScaler,
     calibration_report,
@@ -69,6 +70,7 @@ def exp_aleatoric_recovery(
     cfg: TrainConfig | None = None,
     n_train: int = 4000,
     verbose: bool = True,
+    on_progress=None,
 ) -> dict:
     """Sweep the label-noise dial and compare estimate against closed form.
 
@@ -120,7 +122,12 @@ def exp_aleatoric_recovery(
             r = rows[-1]
             print(f"     est={r['est_aleatoric']:.4f}  epis={r['est_epistemic']:.4f}  "
                   f"corr={corr:.3f}", flush=True)
-    return {"rows": rows}
+        # Persist after every sweep point. Each point costs several minutes of
+        # training, and saving only at the end means an interruption discards the
+        # entire sweep -- which is exactly how this experiment was lost twice.
+        if on_progress is not None:
+            on_progress({"rows": rows, "complete": len(rows) == len(betas)})
+    return {"rows": rows, "complete": True}
 
 
 # --------------------------------------------------------------------------
@@ -131,6 +138,7 @@ def exp_epistemic_vs_data(
     phantom: PhantomConfig | None = None,
     cfg: TrainConfig | None = None,
     verbose: bool = True,
+    on_progress=None,
 ) -> dict:
     """Epistemic uncertainty must decay toward 0; aleatoric must not move.
 
@@ -177,13 +185,15 @@ def exp_epistemic_vs_data(
             r = rows[-1]
             print(f"     epis={r['est_epistemic']:.4f}  alea={r['est_aleatoric']:.4f}  "
                   f"err={r['test_error']:.4f}", flush=True)
+        if on_progress is not None:
+            on_progress({"rows": rows, "complete": len(rows) == len(sizes)})
 
     # log-log slope of epistemic vs n
     n_arr = np.array([r["n_train"] for r in rows], dtype=float)
     e_arr = np.array([r["est_epistemic"] for r in rows], dtype=float)
     ok = e_arr > 1e-8
     slope = float(np.polyfit(np.log(n_arr[ok]), np.log(e_arr[ok]), 1)[0]) if ok.sum() > 1 else float("nan")
-    return {"rows": rows, "loglog_slope_epistemic_vs_n": slope}
+    return {"rows": rows, "loglog_slope_epistemic_vs_n": slope, "complete": True}
 
 
 # --------------------------------------------------------------------------
@@ -199,11 +209,26 @@ def exp_calibration(models, benchmark, n_bins: int = 15, verbose: bool = True) -
     is the failure mode that would actually harm a deployed screening system.
     """
     out_val = predict_split(models, benchmark["val"])
-    scaler = TemperatureScaler().fit(out_val.logits, benchmark["val"].labels)
-    if verbose:
-        print(f"[E3] fitted T = {scaler.temperature:.4f}", flush=True)
 
-    results = {"temperature": scaler.temperature, "splits": {}}
+    # Scale inside the posterior average, not on the collapsed mean logit. See
+    # EnsembleTemperatureScaler: mean-of-softmax != softmax-of-mean, so scaling
+    # the averaged logit would calibrate a different estimator from the one we
+    # report everywhere else.
+    scaler = EnsembleTemperatureScaler().fit(
+        out_val.member_logits, benchmark["val"].labels
+    )
+    # Fitted on the *same* validation split, for reference only: the single-model
+    # scaler, whose argmax-invariance guarantee is exact.
+    point_scaler = TemperatureScaler().fit(out_val.logits, benchmark["val"].labels)
+    if verbose:
+        print(f"[E3] fitted T = {scaler.temperature:.4f} (ensemble predictive), "
+              f"{point_scaler.temperature:.4f} (mean-logit)", flush=True)
+
+    results = {
+        "temperature": scaler.temperature,
+        "temperature_mean_logit": point_scaler.temperature,
+        "splits": {},
+    }
     out_test = None
     for name, split in benchmark.items():
         if name in ("train",):
@@ -212,15 +237,30 @@ def exp_calibration(models, benchmark, n_bins: int = 15, verbose: bool = True) -
         if name == "test":
             out_test = out  # reused for the reliability diagrams below
         raw = calibration_report(out.probs, split.labels, n_bins)
-        cal = calibration_report(scaler.transform(out.logits), split.labels, n_bins)
+        cal = calibration_report(
+            scaler.transform(out.member_logits), split.labels, n_bins
+        )
 
-        # accuracy invariance is a theorem, not a hope -- assert it
-        assert abs(raw["accuracy"] - cal["accuracy"]) < 1e-9, (
-            "temperature scaling changed accuracy; the argmax-invariance "
-            "argument is violated, which means a bug"
+        # For a SINGLE softmax, dividing logits by T > 0 provably preserves the
+        # argmax. For a mixture of softmaxes it does not, so we measure the
+        # shift instead of asserting it away. The exact theorem is still checked
+        # -- on the object it actually applies to -- just below.
+        acc_shift = cal["accuracy"] - raw["accuracy"]
+        assert abs(acc_shift) < 0.05, (
+            f"temperature scaling moved accuracy by {acc_shift:+.4f} on '{name}'. "
+            "A shift of a fraction of a point is expected for a mixture "
+            "predictive; this is far too large and indicates a bug."
+        )
+        # the single-model guarantee, verified exactly on the object it applies to
+        assert np.array_equal(
+            out.logits.argmax(-1), point_scaler.transform(out.logits).argmax(-1)
+        ), (
+            "single-model temperature scaling changed the argmax; the "
+            "monotonicity argument is violated, which means a bug"
         )
 
         results["splits"][name] = {
+            "accuracy_shift_from_scaling": acc_shift,
             "shift": split.shift,
             "semantic": SHIFTS.get(name, SHIFTS["id"]).semantic,
             "raw": raw,
@@ -240,7 +280,107 @@ def exp_calibration(models, benchmark, n_bins: int = 15, verbose: bool = True) -
         reliability(out_test.probs, benchmark["test"].labels, n_bins)
     )
     results["reliability_test_cal"] = _bins_to_dict(
-        reliability(scaler.transform(out_test.logits), benchmark["test"].labels, n_bins)
+        reliability(scaler.transform(out_test.member_logits),
+                    benchmark["test"].labels, n_bins)
+    )
+    return results
+
+
+def exp_calibration_baseline(
+    phantom,
+    benchmark,
+    cfg: TrainConfig,
+    n_bins: int = 15,
+    verbose: bool = True,
+) -> dict:
+    """A deliberately miscalibrated single model, for contrast with the ensemble.
+
+    Why this exists
+    ---------------
+    Running temperature scaling on the main model produced $T \\approx 1$ and no
+    ECE improvement: the deep ensemble with a heteroscedastic head is already
+    calibrated, so the post-hoc correction has nothing to correct. Reporting only
+    that would leave the reader unable to tell two very different explanations
+    apart -- that temperature scaling is ineffective, or that the model did not
+    need it.
+
+    So we train the standard recipe for an overconfident network on the *same*
+    data and measure the same quantities:
+
+      * a single model, not an ensemble  -> no averaging to smooth the predictive
+      * no heteroscedastic head          -> no learned outlet for label noise
+      * dropout off at inference         -> a point estimate, not a posterior
+      * final epoch, not best-val-NLL    -> trained past the calibration optimum
+
+    Each of those is a mechanism the main model uses to stay calibrated, removed
+    one at a time. The contrast is the result: temperature scaling should now
+    recover a large ECE improvement, and because this is a *single* softmax
+    rather than a mixture, the argmax-invariance theorem applies exactly -- so
+    accuracy must be bit-identical before and after. We assert that here, which
+    is the check that could not legitimately be made on the ensemble.
+    """
+    base_cfg = replace(
+        cfg,
+        ensemble_size=1,
+        heteroscedastic=False,
+        p_drop=0.05,
+        epochs=max(cfg.epochs, 25),
+        select_by_val_nll=False,
+        seed=cfg.seed + 777,
+    )
+    loaders = make_loaders(benchmark, batch_size=base_cfg.batch_size)
+    model, log = train_one(base_cfg, loaders, seed=base_cfg.seed, verbose=False)
+
+    # Deterministic point predictions: dropout off, no logit sampling.
+    def logits_of(split):
+        x, _ = as_tensors(split)
+        model.eval()
+        outs = []
+        with torch.no_grad():
+            for i in range(0, len(x), 256):
+                mean, _ = model(x[i : i + 256])
+                outs.append(mean)
+        return torch.cat(outs).numpy()
+
+    def softmax_np(z):
+        e = np.exp(z - z.max(-1, keepdims=True))
+        return e / e.sum(-1, keepdims=True)
+
+    scaler = TemperatureScaler().fit(logits_of(benchmark["val"]), benchmark["val"].labels)
+    if verbose:
+        print(f"[E3b] miscalibrated baseline: fitted T = {scaler.temperature:.4f}",
+              flush=True)
+
+    results = {"temperature": scaler.temperature, "splits": {}}
+    for name, split in benchmark.items():
+        if name == "train":
+            continue
+        z = logits_of(split)
+        raw = calibration_report(softmax_np(z), split.labels, n_bins)
+        cal = calibration_report(scaler.transform(z), split.labels, n_bins)
+
+        # Single softmax => the theorem applies exactly. No tolerance.
+        assert abs(raw["accuracy"] - cal["accuracy"]) < 1e-12, (
+            "temperature scaling changed the accuracy of a single model; "
+            "the monotonicity argument is violated, which means a bug"
+        )
+        results["splits"][name] = {
+            "shift": split.shift,
+            "semantic": SHIFTS.get(name, SHIFTS["id"]).semantic,
+            "raw": raw,
+            "calibrated": cal,
+        }
+        if verbose:
+            print(f"     {name:<10} ece {raw['ece']:.4f} -> {cal['ece']:.4f}  "
+                  f"nll {raw['nll']:.4f} -> {cal['nll']:.4f}", flush=True)
+
+    results["reliability_test_raw"] = _bins_to_dict(
+        reliability(softmax_np(logits_of(benchmark["test"])),
+                    benchmark["test"].labels, n_bins)
+    )
+    results["reliability_test_cal"] = _bins_to_dict(
+        reliability(scaler.transform(logits_of(benchmark["test"])),
+                    benchmark["test"].labels, n_bins)
     )
     return results
 
@@ -318,10 +458,15 @@ def exp_selective(models, benchmark, verbose: bool = True) -> dict:
         "risk": curve.risk[::10].tolist(),
     }
 
-    # mixed stream: ID test + the semantic-shift split, where OOD counts as error
+    # Mixed stream: ID test + the genuinely semantic split, where every OOD case
+    # counts as an error. `decoupled` rather than `novel`: on `novel` the model
+    # still predicts correctly (the latent is still encoded), so scoring it as an
+    # error would penalise a confidence function for *not* deferring on inputs it
+    # handles fine -- measuring the opposite of what we intend.
     mixed = {}
-    if "novel" in benchmark:
-        out_ood = predict_split(models, benchmark["novel"])
+    semantic_key = "decoupled" if "decoupled" in benchmark else "novel"
+    if semantic_key in benchmark:
+        out_ood = predict_split(models, benchmark[semantic_key])
         conf_mix = {
             "msp": np.concatenate([out.confidence, out_ood.confidence]),
             "neg_total_entropy": -np.concatenate([out.total, out_ood.total]),
@@ -330,8 +475,15 @@ def exp_selective(models, benchmark, verbose: bool = True) -> dict:
         # every OOD case is scored as an error: the model should have deferred
         correct_mix = np.concatenate([correct, np.zeros(len(out_ood.probs), dtype=bool)])
         mixed = compare_confidence_functions(conf_mix, correct_mix)
+        mixed["_semantic_split"] = semantic_key
         if verbose:
+            print(f"[E5] mixed stream uses '{semantic_key}' as the OOD component",
+                  flush=True)
+            # Underscore-prefixed entries are metadata, not metric dicts; the
+            # plotting and table code already filters on this convention.
             for k, v in mixed.items():
+                if k.startswith("_"):
+                    continue
                 print(f"[E5] mixed {k:<20} AURC={v['aurc']:.4f} "
                       f"cov@risk0.05={v['cov@risk0.05']:.3f}", flush=True)
 

@@ -112,14 +112,30 @@ class ShiftConfig:
 
     name: str
     kind: str  # "none" | "noise" | "blur" | "modality" | "novel_morphology"
+               # | "decoupled"
     severity: float = 0.0
     semantic: bool = False
-    """True if the shift changes the *label semantics* (novel morphology), as
-    opposed to a pure covariate shift where the label is still well defined.
+    """True if the shift destroys the link between image and label, as opposed
+    to a covariate shift where the label is still recoverable.
 
-    The distinction matters for interpreting results: on covariate shift we
-    want the model to stay *calibrated*; on semantic shift we want it to
-    *abstain*. Reporting both under one 'OOD' heading hides that."""
+    The distinction matters for interpreting results: under covariate shift we
+    want the model to stay *calibrated*; under semantic shift we want it to
+    *abstain*. Reporting both under one 'OOD' heading hides that.
+
+    Getting this flag right turned out to be subtle. The obvious candidate --
+    swapping the lesion for an unseen annular morphology -- is *not* a semantic
+    shift, because the rendering still sets the lesion amplitude to
+    `lesion_amp * z`. The signed contrast therefore still carries the latent,
+    the network reads it off a ring about as well as off a blob, and accuracy
+    is unchanged. Measured on this benchmark: novel-morphology accuracy 0.728
+    against 0.733 in-distribution, a difference well inside noise. It is a
+    covariate shift wearing a semantic costume.
+
+    `decoupled` is the honest version: same unseen morphology, but the
+    amplitude is drawn independently of z, so the image carries *no*
+    information about the label and p(y|x) = 1/2 exactly. No model can beat
+    chance, so the correct behaviour is to abstain -- which is what makes
+    epistemic uncertainty, rather than aleatoric, the right detector."""
 
 
 SHIFTS: dict[str, ShiftConfig] = {
@@ -133,8 +149,10 @@ SHIFTS: dict[str, ShiftConfig] = {
     "blur_3": ShiftConfig("blur (severe)", "blur", 3.5),
     # acquisition shift: different "scanner"/sequence
     "modality": ShiftConfig("modality shift", "modality", 1.0),
-    # semantic shift: lesion type never seen in training
-    "novel": ShiftConfig("novel morphology", "novel_morphology", 1.0, semantic=True),
+    # unseen morphology, but the latent is still encoded -> covariate, not semantic
+    "novel": ShiftConfig("novel morphology", "novel_morphology", 1.0),
+    # unseen morphology AND the latent is not encoded -> genuinely semantic
+    "decoupled": ShiftConfig("decoupled lesion", "decoupled", 1.0, semantic=True),
 }
 
 
@@ -223,7 +241,7 @@ def render_one(
         # label is still well defined -- this is acquisition shift, not novelty.
         tex_scale = cfg.texture_scale * 0.45
         base, grad_amp = 0.38, cfg.gradient_amp * 2.0
-    elif shift.kind == "novel_morphology":
+    elif shift.kind in ("novel_morphology", "decoupled"):
         morphology = "ring"
 
     yy, xx = _coords(cfg.image_size)
@@ -235,7 +253,16 @@ def render_one(
         img = 1.0 - img  # invert tissue contrast
 
     kernel = _lesion_kernel(cfg, rng, geom, morphology)
-    img = img + (cfg.lesion_amp * z) * kernel
+    if shift.kind == "decoupled":
+        # Amplitude drawn independently of z: the image is rendered from a fresh
+        # standard normal, so it carries no information about the label that was
+        # sampled from sigma(beta * z). The marginal appearance statistics match
+        # the training distribution -- only the image/label *link* is severed,
+        # which is what isolates semantic novelty from covariate shift.
+        amp_latent = rng.standard_normal()
+    else:
+        amp_latent = z
+    img = img + (cfg.lesion_amp * amp_latent) * kernel
 
     img = img * mask  # background is air
 
@@ -405,7 +432,7 @@ def make_benchmark(
     seed: int = 0,
     shifts: tuple[str, ...] = ("noise_1", "noise_2", "noise_3",
                                "blur_1", "blur_2", "blur_3",
-                               "modality", "novel"),
+                               "modality", "novel", "decoupled"),
 ) -> dict[str, PhantomSplit]:
     """Full benchmark: train / val / test in-distribution, plus shifted sets.
 

@@ -31,7 +31,8 @@ def _save(fig, out_dir: Path, name: str) -> Path:
 
 def plot_phantoms(benchmark, out_dir: Path, n: int = 6) -> Path:
     """Sample scans across the shift suite -- the qualitative sanity check."""
-    keys = [k for k in ("test", "noise_3", "blur_3", "modality", "novel") if k in benchmark]
+    keys = [k for k in ("test", "noise_3", "blur_3", "modality", "novel", "decoupled")
+            if k in benchmark]
     fig, axes = plt.subplots(len(keys), n, figsize=(1.35 * n, 1.45 * len(keys)))
     axes = np.atleast_2d(axes)
     for r, key in enumerate(keys):
@@ -145,7 +146,8 @@ def plot_reliability(res: dict, out_dir: Path) -> Path:
 def plot_calibration_under_shift(res: dict, out_dir: Path) -> Path:
     """E3: does a temperature fitted in-distribution survive shift?"""
     order = [k for k in ("test", "noise_1", "noise_2", "noise_3",
-                         "blur_1", "blur_2", "blur_3", "modality", "novel")
+                         "blur_1", "blur_2", "blur_3", "modality", "novel",
+                         "decoupled")
              if k in res["splits"]]
     raw = [res["splits"][k]["raw"]["ece"] for k in order]
     cal = [res["splits"][k]["calibrated"]["ece"] for k in order]
@@ -170,9 +172,60 @@ def plot_calibration_under_shift(res: dict, out_dir: Path) -> Path:
     return _save(fig, out_dir, "05_calibration_under_shift.png")
 
 
+def plot_calibration_contrast(ens: dict, base: dict, out_dir: Path) -> Path:
+    """E3 vs E3b: temperature scaling only helps a model that needs it.
+
+    Left pair is the miscalibrated single model, right pair the deep ensemble.
+    The point of showing them together is that a reader seeing only the ensemble
+    could not distinguish 'temperature scaling does not work' from 'this model
+    did not need it'.
+    """
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.6))
+
+    for ax, res, title in [
+        (axes[0], base, f"single model, final epoch (T={base['temperature']:.2f})"),
+        (axes[1], ens, f"deep ensemble + heteroscedastic (T={ens['temperature']:.2f})"),
+    ]:
+        b = res["reliability_test_raw"]
+        c = res["reliability_test_cal"]
+        edges = np.array(b["edges"])
+        centres = (edges[:-1] + edges[1:]) / 2
+        cnt = np.array(b["counts"])
+        m = cnt > 0
+        ax.plot([0, 1], [0, 1], "k--", lw=1, label="perfect")
+        ax.plot(np.array(b["conf"])[m], np.array(b["acc"])[m], color="#c0392b",
+                marker="o", ms=3.5, lw=1.3, label="raw")
+        cm = np.array(c["counts"]) > 0
+        ax.plot(np.array(c["conf"])[cm], np.array(c["acc"])[cm], color="#2980b9",
+                marker="s", ms=3.5, lw=1.3, label="scaled")
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+        ax.set_xlabel("confidence"); ax.set_ylabel("accuracy")
+        ax.set_title(title, fontsize=8)
+        ax.legend(fontsize=7, loc="upper left")
+
+    # ECE bars, in-distribution test split
+    labels, raws, cals = [], [], []
+    for res, nm in [(base, "single\n(final epoch)"), (ens, "ensemble\n+ hetero")]:
+        t = res["splits"]["test"]
+        labels.append(nm)
+        raws.append(t["raw"]["ece"])
+        cals.append(t["calibrated"]["ece"])
+    x = np.arange(len(labels))
+    axes[2].bar(x - 0.2, raws, 0.4, color="#c0392b", alpha=0.85, label="raw")
+    axes[2].bar(x + 0.2, cals, 0.4, color="#2980b9", alpha=0.85, label="scaled")
+    axes[2].set_xticks(x); axes[2].set_xticklabels(labels, fontsize=8)
+    axes[2].set_ylabel("ECE (test)")
+    axes[2].set_title("What temperature scaling recovers", fontsize=8)
+    axes[2].legend(fontsize=7)
+    return _save(fig, out_dir, "10_calibration_contrast.png")
+
+
 def plot_ood(res: dict, out_dir: Path) -> Path:
     """E4: AUROC per score per shift, covariate vs semantic."""
-    shifts = list(res.keys())
+    # Top-level keys are shift names plus `_`-prefixed metadata (`_preset`, added
+    # to every saved payload). Taking keys()[0] blindly picks up the metadata
+    # string and then iterates its characters.
+    shifts = [k for k in res if not k.startswith("_")]
     scores = [k for k in res[shifts[0]] if not k.startswith("_")]
     mat = np.array([[res[s][sc]["auroc"] for s in shifts] for sc in scores])
 

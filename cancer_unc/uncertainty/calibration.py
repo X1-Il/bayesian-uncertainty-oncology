@@ -289,6 +289,87 @@ class TemperatureScaler(nn.Module):
             return F.softmax(self.forward(z), dim=-1).numpy()
 
 
+class EnsembleTemperatureScaler(nn.Module):
+    r"""Temperature scaling for a *posterior predictive*, not a single softmax.
+
+    Why this class exists
+    ---------------------
+    The predictive distribution of an ensemble (or of MC dropout) is a mixture,
+
+        p(y|x) = (1/M) \sum_m softmax(z_m).
+
+    Applying `TemperatureScaler` to the *averaged* logits computes
+    softmax(\bar z / T), which is a different estimator: softmax is non-linear,
+    so mean-of-softmax != softmax-of-mean. Calibrating one and reporting the
+    other silently compares two different models.
+
+    The correct operation scales inside the average,
+
+        p_T(y|x) = (1/M) \sum_m softmax(z_m / T),
+
+    which is what this class fits and applies.
+
+    The invariance caveat
+    ---------------------
+    For a single model, dividing logits by T > 0 provably preserves the argmax,
+    so accuracy is untouched. **That guarantee does not extend to the mixture.**
+    The argmax of a mixture of softmaxes is not temperature-invariant: raising T
+    flattens each member toward uniform, which re-weights how much each member
+    contributes to the mixture, and the winning class can change. So accuracy can
+    move here -- typically by a fraction of a point, but not by exactly zero.
+
+    This is worth stating because the single-model theorem is quoted routinely
+    and applied to ensembles, where it is false. We measure the shift rather than
+    assume it away (`accuracy_shift`).
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.log_t = nn.Parameter(torch.zeros(1))
+
+    @property
+    def temperature(self) -> float:
+        return float(self.log_t.detach().exp())
+
+    def _mixture_log_probs(self, member_logits: torch.Tensor) -> torch.Tensor:
+        """log (1/M) sum_m softmax(z_m / T), computed in log-space. (N, C)"""
+        z = member_logits / self.log_t.exp()  # (N, M, C)
+        log_p = z - torch.logsumexp(z, dim=-1, keepdim=True)
+        m = member_logits.shape[1]
+        return torch.logsumexp(log_p, dim=1) - torch.log(
+            torch.tensor(float(m), device=z.device)
+        )
+
+    def fit(self, member_logits: np.ndarray, labels: np.ndarray,
+            max_iter: int = 200) -> "EnsembleTemperatureScaler":
+        z = torch.as_tensor(member_logits, dtype=torch.float32)
+        y = torch.as_tensor(labels, dtype=torch.long)
+        opt = torch.optim.LBFGS([self.log_t], lr=0.1, max_iter=max_iter)
+
+        def closure():
+            opt.zero_grad()
+            loss = F.nll_loss(self._mixture_log_probs(z), y)
+            loss.backward()
+            return loss
+
+        opt.step(closure)
+        return self
+
+    def transform(self, member_logits: np.ndarray) -> np.ndarray:
+        with torch.no_grad():
+            z = torch.as_tensor(member_logits, dtype=torch.float32)
+            return self._mixture_log_probs(z).exp().numpy()
+
+    def accuracy_shift(self, member_logits: np.ndarray, labels: np.ndarray) -> float:
+        """Signed change in accuracy caused by scaling. Expected to be small but
+        not exactly zero -- see the caveat in the class docstring."""
+        base = torch.as_tensor(member_logits, dtype=torch.float32)
+        with torch.no_grad():
+            raw = F.softmax(base, dim=-1).mean(dim=1).argmax(-1).numpy()
+        cal = self.transform(member_logits).argmax(-1)
+        return float((cal == labels).mean() - (raw == labels).mean())
+
+
 class VectorScaler(nn.Module):
     """p = softmax(diag(w) z + b): 2C parameters.
 

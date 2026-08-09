@@ -86,6 +86,27 @@ def test_coverage_at_unreachable_risk_is_zero():
     assert coverage_at_risk(curve, 0.01)["coverage"] == 0.0
 
 
+def test_metadata_keys_are_distinguishable_from_metrics():
+    """Result dicts mix metric entries with `_`-prefixed metadata.
+
+    Every consumer -- printing, plotting, table generation -- must filter on
+    that prefix. A loop that assumed all values were metric dicts crashed E5
+    after ~90 minutes of compute, so the convention is pinned here.
+    """
+    from cancer_unc.eval import compare_confidence_functions
+
+    rng = np.random.default_rng(0)
+    correct = rng.random(200) < 0.7
+    res = compare_confidence_functions({"a": rng.random(200)}, correct)
+    res["_meta"] = "decoupled"
+
+    metrics = {k: v for k, v in res.items() if not k.startswith("_")}
+    assert set(metrics) == {"a"}
+    for v in metrics.values():
+        assert isinstance(v, dict) and "aurc" in v
+    assert isinstance(res["_meta"], str)
+
+
 def test_custom_loss_is_respected():
     """Cost-sensitive losses (false negatives costlier) must change the curve."""
     correct = np.array([True, False, True, False] * 50)

@@ -122,8 +122,37 @@ def test_noise_free_labels_are_deterministic_given_z():
     np.testing.assert_array_equal(s.labels, (s.p_true > 0.5).astype(np.int64))
 
 
-def test_semantic_flag_is_set_only_for_novel_morphology():
-    """The covariate/semantic distinction drives how E4 is interpreted."""
-    assert SHIFTS["novel"].semantic
-    for key in ("noise_1", "noise_3", "blur_2", "modality"):
+def test_only_decoupled_is_flagged_semantic():
+    """The covariate/semantic distinction drives how E4 is interpreted.
+
+    `novel` is deliberately NOT semantic: it changes the lesion's shape but
+    still encodes the latent in its signed amplitude, so the label stays
+    recoverable. Only `decoupled` severs the image/label link.
+    """
+    assert SHIFTS["decoupled"].semantic
+    for key in ("noise_1", "noise_3", "blur_2", "modality", "novel"):
         assert not SHIFTS[key].semantic
+
+
+def test_decoupled_shift_destroys_the_image_label_link():
+    """The defining property: lesion contrast must be independent of z.
+
+    Under `novel` the rendered contrast still tracks z (that is exactly why it
+    is not a semantic shift). Under `decoupled` it must not, or the split does
+    not test what E4 claims it tests.
+    """
+    cfg = PhantomConfig()
+    n = 400
+    from cancer_unc.data import matched_filter_statistic
+
+    for key, expect_link in (("novel", True), ("decoupled", False)):
+        s = make_split(n, cfg, seed=4242, shift=SHIFTS[key])
+        stat = matched_filter_statistic(s.images, cfg)
+        r = abs(np.corrcoef(stat, s.z)[0, 1])
+        if expect_link:
+            assert r > 0.4, f"{key}: expected contrast to track z, got r={r:.3f}"
+        else:
+            assert r < 0.2, f"{key}: contrast still tracks z (r={r:.3f}); the "
+    # under `decoupled` the label is a coin flip given the image
+    s = make_split(2000, cfg, seed=99, shift=SHIFTS["decoupled"])
+    assert 0.4 < s.labels.mean() < 0.6

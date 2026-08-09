@@ -136,6 +136,26 @@ class BayesianCNN(nn.Module):
 
     # -- inference --------------------------------------------------------
     @torch.no_grad()
+    def probs_from(
+        self, mean: torch.Tensor, logvar: torch.Tensor | None,
+        n_logit_samples: int | None = None, temperature: float = 1.0,
+    ) -> torch.Tensor:
+        """Marginalise logit noise into class probabilities, at temperature T.
+
+        `temperature` divides the logits *before* the softmax and before the
+        noise is added, which is what makes per-member temperature scaling of an
+        ensemble well defined (see `EnsembleTemperatureScaler`).
+        """
+        m = mean / temperature
+        if logvar is None:
+            return F.softmax(m, dim=-1)
+        s = n_logit_samples or self.n_logit_samples
+        sigma = torch.exp(0.5 * logvar) / temperature
+        eps = torch.randn(s, *m.shape, device=m.device, dtype=m.dtype)
+        u = m.unsqueeze(0) + sigma.unsqueeze(0) * eps
+        return F.softmax(u, dim=-1).mean(dim=0)
+
+    @torch.no_grad()
     def predict_probs(
         self, x: torch.Tensor, n_logit_samples: int | None = None
     ) -> torch.Tensor:
@@ -146,12 +166,20 @@ class BayesianCNN(nn.Module):
         decomposition in `uncertainty.decomposition`.
         """
         mean, logvar = self.forward(x)
-        if logvar is None:
-            return F.softmax(mean, dim=-1)
-        s = n_logit_samples or self.n_logit_samples
-        eps = torch.randn(s, *mean.shape, device=mean.device, dtype=mean.dtype)
-        u = mean.unsqueeze(0) + torch.exp(0.5 * logvar).unsqueeze(0) * eps
-        return F.softmax(u, dim=-1).mean(dim=0)
+        return self.probs_from(mean, logvar, n_logit_samples)
+
+    @torch.no_grad()
+    def predict_probs_and_logits(
+        self, x: torch.Tensor, n_logit_samples: int | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Both the marginalised probabilities and the mean logits.
+
+        The logits are kept per posterior sample so that temperature scaling can
+        be applied *inside* the posterior average rather than to a collapsed
+        point estimate.
+        """
+        mean, logvar = self.forward(x)
+        return self.probs_from(mean, logvar, n_logit_samples), mean
 
 
 def heteroscedastic_ce(

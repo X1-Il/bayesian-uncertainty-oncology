@@ -1,0 +1,309 @@
+{
+  "_preset": "full",
+  "noise_1": {
+    "msp": {
+      "auroc": 0.47210633754730225,
+      "aupr_out": 0.31188352273564574,
+      "fpr@95tpr": 0.9588
+    },
+    "entropy": {
+      "auroc": 0.47210633754730225,
+      "aupr_out": 0.31188352273564574,
+      "fpr@95tpr": 0.9588
+    },
+    "energy": {
+      "auroc": 0.49157750606536865,
+      "aupr_out": 0.3983129912989236,
+      "fpr@95tpr": 0.9612
+    },
+    "epistemic": {
+      "auroc": 0.558332,
+      "aupr_out": 0.40691030682002977,
+      "fpr@95tpr": 0.9548
+    },
+    "aleatoric": {
+      "auroc": 0.47112533333333334,
+      "aupr_out": 0.30903861083700557,
+      "fpr@95tpr": 0.9584
+    },
+    "mahalanobis": {
+      "auroc": 0.7841953333333334,
+      "aupr_out": 0.5391170054511221,
+      "fpr@95tpr": 0.5748
+    },
+    "_semantic": false,
+    "_shift": "noise (mild)"
+  },
+  "noise_2": {
+    "msp": {
+      "auroc": 0.4642833471298218,
+      "aupr_out": 0.3015783625888012,
+      "fpr@95tpr": 0.9664
+    },
+    "entropy": {
+      "auroc": 0.4642833471298218,
+      "aupr_out": 0.3015783625888012,
+      "fpr@95tpr": 0.9664
+    },
+    "energy": {
+      "auroc": 0.506742000579834,
+      "aupr_out": 0.4317228616997896,
+      "fpr@95tpr": 0.9648
+    },
+    "epistemic": {
+      "auroc": 0.8701646666666667,
+      "aupr_out": 0.8517295831400447,
+      "fpr@95tpr": 0.7736
+    },
+    "aleatoric": {
+      "auroc": 0.4550113333333333,
+      "aupr_out": 0.2870401600808029,
+      "fpr@95tpr": 0.9664
+    },
+    "mahalanobis": {
+      "auroc": 0.9863746666666666,
+      "aupr_out": 0.9579988538156285,
+      "fpr@95tpr": 0.0376
+    },
+    "_semantic": false,
+    "_shift": "noise (moderate)"
+  },
+  "noise_3": {
+    "msp": {
+      "auroc": 0.508804976940155,
+      "aupr_out": 0.3277409563764491,
+      "fpr@95tpr": 0.9572
+    },
+    "entropy": {
+      "auroc": 0.5088048577308655,
+      "aupr_out": 0.32775286113835395,
+      "fpr@95tpr": 0.9572
+    },
+    "energy": {
+      "auroc": 0.5200886726379395,
+      "aupr_out": 0.3812625944632403,
+      "fpr@95tpr": 0.9532
+    },
+    "epistemic": {
+      "auroc": 0.9374056666666667,
+      "aupr_out": 0.9306301790285457,
+      "fpr@95tpr": 0.4544
+    },
+    "aleatoric": {
+      "auroc": 0.434722,
+      "aupr_out": 0.27051636232624826,
+      "fpr@95tpr": 0.9572
+    },
+    "mahalanobis": {
+      "auroc": 0.9997423333333333,
+      "aupr_out": 0.9994455908070226,
+      "fpr@95tpr": 0.0016
+    },
+    "_semantic": false,
+    "_shift": "noise (severe)"
+  },
+  "blur_1": {
+    "msp": {
+      "auroc": 0.5068730115890503,
+      "aupr_out": 0.3270763852090321,
+      "fpr@95tpr": 0.9556
+    },
+    "entropy": {
+      "auroc": 0.5068731904029846,
+      "aupr_out": 0.327079503804773,
+      "fpr@95tpr": 0.9556
+    },
+    "energy": {
+      "auroc": 0.5099701881408691,
+      "aupr_out": 0.3438395828169073,
+      "fpr@95tpr": 0.956
+    },
+    "epistemic": {
+      "auroc": 0.4930596666666667,
+      "aupr_out": 0.3175466443761504,
+      "fpr@95tpr": 0.9504
+    },
+    "aleatoric": {
+      "auroc": 0.5070443333333333,
+      "aupr_out": 0.3290243820153412,
+      "fpr@95tpr": 0.9556
+    },
+    "mahalanobis": {
+      "auroc": 0.47562766666666667,
+      "aupr_out": 0.32364696907227225,
+      "fpr@95tpr": 0.9708
+    },
+    "_semantic": false,
+    "_shift": "blur (mild)"
+  },
+  "blur_2": {
+    "msp": {
+      "auroc": 0.4721713364124298,
+      "aupr_out": 0.3021854380534659,
+      "fpr@95tpr": 0.958
+    },
+    "entropy": {
+      "auroc": 0.4721716642379761,
+      "aupr_out": 0.3022441264411017,
+      "fpr@95tpr": 0.958
+    },
+    "energy": {
+      "auroc": 0.48288366198539734,
+      "aupr_out": 0.35514456790312293,
+      "fpr@95tpr": 0.9612
+    },
+    "epistemic": {
+      "auroc": 0.4388453333333333,
+      "aupr_out": 0.28056700425339093,
+      "fpr@95tpr": 0.9628
+    },
+    "aleatoric": {
+      "auroc": 0.4726066666666667,
+      "aupr_out": 0.30435246611526434,
+      "fpr@95tpr": 0.958
+    },
+    "mahalanobis": {
+      "auroc": 0.607084,
+      "aupr_out": 0.40485175021151854,
+      "fpr@95tpr": 0.8988
+    },
+    "_semantic": false,
+    "_shift": "blur (moderate)"
+  },
+  "blur_3": {
+    "msp": {
+      "auroc": 0.4349616765975952,
+      "aupr_out": 0.2885898714950632,
+      "fpr@95tpr": 0.9756
+    },
+    "entropy": {
+      "auroc": 0.4349614977836609,
+      "aupr_out": 0.2885898714950632,
+      "fpr@95tpr": 0.9756
+    },
+    "energy": {
+      "auroc": 0.45959851145744324,
+      "aupr_out": 0.39877610058962926,
+      "fpr@95tpr": 0.98
+    },
+    "epistemic": {
+      "auroc": 0.680864,
+      "aupr_out": 0.5872777948024545,
+      "fpr@95tpr": 0.9348
+    },
+    "aleatoric": {
+      "auroc": 0.434584,
+      "aupr_out": 0.2918989933532136,
+      "fpr@95tpr": 0.9768
+    },
+    "mahalanobis": {
+      "auroc": 0.9172883333333334,
+      "aupr_out": 0.7623845019506267,
+      "fpr@95tpr": 0.18
+    },
+    "_semantic": false,
+    "_shift": "blur (severe)"
+  },
+  "modality": {
+    "msp": {
+      "auroc": 0.48032066226005554,
+      "aupr_out": 0.32020635592944996,
+      "fpr@95tpr": 0.984
+    },
+    "entropy": {
+      "auroc": 0.48032084107398987,
+      "aupr_out": 0.320207354139556,
+      "fpr@95tpr": 0.984
+    },
+    "energy": {
+      "auroc": 0.4936924874782562,
+      "aupr_out": 0.3623975321482554,
+      "fpr@95tpr": 0.9852
+    },
+    "epistemic": {
+      "auroc": 0.584475,
+      "aupr_out": 0.4038268185018895,
+      "fpr@95tpr": 0.91
+    },
+    "aleatoric": {
+      "auroc": 0.479266,
+      "aupr_out": 0.313832174327466,
+      "fpr@95tpr": 0.9836
+    },
+    "mahalanobis": {
+      "auroc": 0.8586586666666667,
+      "aupr_out": 0.6770299305305304,
+      "fpr@95tpr": 0.3668
+    },
+    "_semantic": false,
+    "_shift": "modality shift"
+  },
+  "novel": {
+    "msp": {
+      "auroc": 0.4829588234424591,
+      "aupr_out": 0.3152540948163461,
+      "fpr@95tpr": 0.95
+    },
+    "entropy": {
+      "auroc": 0.48295900225639343,
+      "aupr_out": 0.31525437131708955,
+      "fpr@95tpr": 0.95
+    },
+    "energy": {
+      "auroc": 0.4833976626396179,
+      "aupr_out": 0.32146240638807627,
+      "fpr@95tpr": 0.9536
+    },
+    "epistemic": {
+      "auroc": 0.5326883333333333,
+      "aupr_out": 0.3789799690008433,
+      "fpr@95tpr": 0.9592
+    },
+    "aleatoric": {
+      "auroc": 0.482901,
+      "aupr_out": 0.3140073235569272,
+      "fpr@95tpr": 0.95
+    },
+    "mahalanobis": {
+      "auroc": 0.5620676666666666,
+      "aupr_out": 0.38257290736783073,
+      "fpr@95tpr": 0.9312
+    },
+    "_semantic": false,
+    "_shift": "novel morphology"
+  },
+  "decoupled": {
+    "msp": {
+      "auroc": 0.4905073344707489,
+      "aupr_out": 0.31534385130068543,
+      "fpr@95tpr": 0.9432
+    },
+    "entropy": {
+      "auroc": 0.4905075132846832,
+      "aupr_out": 0.3157624392366737,
+      "fpr@95tpr": 0.9432
+    },
+    "energy": {
+      "auroc": 0.49108633399009705,
+      "aupr_out": 0.31624787571976976,
+      "fpr@95tpr": 0.9408
+    },
+    "epistemic": {
+      "auroc": 0.5216096666666666,
+      "aupr_out": 0.3777508449989425,
+      "fpr@95tpr": 0.9596
+    },
+    "aleatoric": {
+      "auroc": 0.490466,
+      "aupr_out": 0.3163439104539423,
+      "fpr@95tpr": 0.9424
+    },
+    "mahalanobis": {
+      "auroc": 0.548328,
+      "aupr_out": 0.3599901350059951,
+      "fpr@95tpr": 0.936
+    },
+    "_semantic": true,
+    "_shift": "decoupled lesion"
+  }
+}

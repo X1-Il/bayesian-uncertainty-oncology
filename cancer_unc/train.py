@@ -46,6 +46,14 @@ class TrainConfig:
     what temperature scaling fixes, not pre-fix it in the loss."""
     seed: int = 0
     device: str = "cpu"
+    select_by_val_nll: bool = True
+    """Restore the checkpoint with the lowest validation NLL.
+
+    Set False to keep the *final* epoch instead. That is not a worse
+    engineering choice by accident -- it is the standard recipe for an
+    overconfident network, because NLL is the first thing to degrade once a
+    model starts fitting the training labels too sharply, while accuracy keeps
+    creeping up. E3's miscalibrated baseline relies on this."""
 
 
 @torch.no_grad()
@@ -121,9 +129,14 @@ def train_one(
                 flush=True,
             )
 
-    if best["state"] is not None:
+    if cfg.select_by_val_nll and best["state"] is not None:
         model.load_state_dict(best["state"])
-    return model, {"history": history, "best_epoch": best["epoch"], "best_val_nll": best["nll"]}
+    return model, {
+        "history": history,
+        "best_epoch": best["epoch"] if cfg.select_by_val_nll else cfg.epochs - 1,
+        "best_val_nll": best["nll"],
+        "selected_by_val_nll": cfg.select_by_val_nll,
+    }
 
 
 def train_ensemble(

@@ -25,6 +25,7 @@ from cancer_unc.data import PhantomConfig, make_benchmark, make_loaders, oracle_
 from cancer_unc.experiments import (
     exp_aleatoric_recovery,
     exp_calibration,
+    exp_calibration_baseline,
     exp_epistemic_vs_data,
     exp_identifiability,
     exp_mc_budget,
@@ -32,11 +33,30 @@ from cancer_unc.experiments import (
     exp_selective,
     predict_split,
 )
-from cancer_unc.train import TrainConfig, train_ensemble
+from cancer_unc.train import TrainConfig, load_ensemble, train_ensemble
 
 ROOT = Path(__file__).parent
-RESULTS = ROOT / "results"
-FIGURES = ROOT / "figures"
+
+# Outputs are scoped by preset. This is not tidiness -- it is a correctness
+# guard. `--quick` and `--full` produce results that look identical in structure
+# but differ by an order of magnitude in training budget, and `--quick` is the
+# default when neither flag is given. Sharing one output directory means a stray
+# default-argument invocation silently overwrites a multi-hour study with
+# smoke-test numbers, and nothing in the JSON says which produced it. That
+# happened during development; these directories make it impossible.
+RESULTS = ROOT / "results" / "full"
+FIGURES = ROOT / "figures" / "full"
+
+
+def set_output_dirs(quick: bool) -> None:
+    global RESULTS, FIGURES
+    preset = "quick" if quick else "full"
+    RESULTS = ROOT / "results" / preset
+    FIGURES = ROOT / "figures" / preset
+
+
+def checkpoint_dir(quick: bool) -> Path:
+    return ROOT / "checkpoints" / ("quick" if quick else "full")
 
 
 # --------------------------------------------------------------------------
@@ -88,14 +108,51 @@ def _json_default(o):
 
 def save(name: str, obj) -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
-    with open(RESULTS / f"{name}.json", "w") as f:
+    # Stamp the preset into the payload as well as the path, so a file that is
+    # copied or pasted somewhere still says what produced it.
+    if isinstance(obj, dict):
+        obj = {"_preset": RESULTS.name, **obj}
+    with open(RESULTS / f"{name}.json", "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, default=_json_default)
-    print(f"  -> results/{name}.json")
+    print(f"  -> {RESULTS.relative_to(ROOT).as_posix()}/{name}.json")
 
 
 def load(name: str):
     p = RESULTS / f"{name}.json"
-    return json.loads(p.read_text()) if p.exists() else None
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+
+# --------------------------------------------------------------------------
+# resumable sweeps
+#
+# E1 and E2 train a fresh ensemble per sweep point, so a full sweep is tens of
+# minutes and losing it to an interrupted process is expensive -- it happened
+# twice during development. Partial results are written after every point, and
+# a re-run picks up only the points still missing.
+# --------------------------------------------------------------------------
+def _done_values(name: str, key: str) -> set:
+    prev = load(name)
+    return {r[key] for r in prev["rows"]} if prev and "rows" in prev else set()
+
+
+def _remaining(values: tuple, name: str, key: str) -> tuple:
+    done = _done_values(name, key)
+    todo = tuple(v for v in values if v not in done)
+    if done:
+        print(f"  resuming: {len(done)} point(s) already done, {len(todo)} to go")
+    return todo
+
+
+def _merge(part: dict, name: str, key: str) -> dict:
+    """Combine freshly computed rows with any previously saved ones."""
+    prev = load(name)
+    rows = list(prev["rows"]) if prev and "rows" in prev else []
+    have = {r[key] for r in rows}
+    rows.extend(r for r in part["rows"] if r[key] not in have)
+    rows.sort(key=lambda r: r[key])
+    merged = {k: v for k, v in part.items() if k != "rows"}
+    merged["rows"] = rows
+    return merged
 
 
 # --------------------------------------------------------------------------
@@ -109,13 +166,20 @@ def main() -> int:
                     choices=["all", "e1", "e2", "e3", "e4", "e5", "e6", "audit"])
     ap.add_argument("--plots-only", action="store_true",
                     help="regenerate figures from saved results/*.json")
+    ap.add_argument("--load-checkpoints", action="store_true",
+                    help="reuse checkpoints/ instead of retraining the main "
+                         "ensemble; the phantom benchmark is regenerated from "
+                         "--seed, so it is bit-identical to the training run")
     ap.add_argument("--threads", type=int, default=0,
                     help="torch CPU threads (0 = leave default)")
     args = ap.parse_args()
 
     if args.threads:
         torch.set_num_threads(args.threads)
+    if args.quick and args.full:
+        ap.error("--quick and --full are mutually exclusive")
     quick = args.quick or not args.full
+    set_output_dirs(quick)
     phantom, cfg, P = presets(quick, args.seed)
 
     torch.manual_seed(args.seed)
@@ -154,9 +218,23 @@ def main() -> int:
             phantom, n_train=P["n_train"], n_val=P["n_val"],
             n_test=P["n_test"], n_ood=P["n_ood"], seed=args.seed,
         )
-        loaders = make_loaders(benchmark, batch_size=cfg.batch_size)
-        models, logs = train_ensemble(cfg, loaders, out_dir=ROOT / "checkpoints")
-        save("train_logs", {"config": asdict(cfg), "logs": logs})
+        ckpt_dir = checkpoint_dir(quick)
+        if args.load_checkpoints and ckpt_dir.exists():
+            try:
+                models = load_ensemble(ckpt_dir, cfg)
+            except RuntimeError as e:
+                # Almost always a width mismatch from a different preset. The
+                # raw torch message names tensor shapes, not the cause.
+                raise SystemExit(
+                    f"checkpoints in {ckpt_dir} do not match the '{'quick' if quick else 'full'}' "
+                    f"architecture (width={cfg.width}).\nRetrain them by dropping "
+                    f"--load-checkpoints, or delete {ckpt_dir}.\n\noriginal error: {e}"
+                ) from e
+            print(f"  loaded {len(models)} members from {ckpt_dir}")
+        else:
+            loaders = make_loaders(benchmark, batch_size=cfg.batch_size)
+            models, logs = train_ensemble(cfg, loaders, out_dir=ckpt_dir)
+            save("train_logs", {"config": asdict(cfg), "logs": logs})
 
         out_test = predict_split(models, benchmark["test"])
         acc = float((out_test.prediction == benchmark["test"].labels).mean())
@@ -169,20 +247,35 @@ def main() -> int:
     if not args.plots_only:
         if stage in ("all", "e1"):
             print("[E1] aleatoric recovery across the label-noise sweep")
-            save("e1_aleatoric_recovery", exp_aleatoric_recovery(
-                betas=P["betas"], base_phantom=phantom, cfg=P["e1_cfg"],
-                n_train=P["e1_n_train"]))
+            betas = _remaining(P["betas"], "e1_aleatoric_recovery", "beta")
+            if betas:
+                save("e1_aleatoric_recovery", exp_aleatoric_recovery(
+                    betas=betas, base_phantom=phantom, cfg=P["e1_cfg"],
+                    n_train=P["e1_n_train"],
+                    on_progress=lambda part: save("e1_aleatoric_recovery",
+                                                  _merge(part, "e1_aleatoric_recovery", "beta"))))
+            else:
+                print("  already complete; skipping")
             print()
 
         if stage in ("all", "e2"):
             print("[E2] epistemic decay with training set size")
-            save("e2_epistemic_vs_data", exp_epistemic_vs_data(
-                sizes=P["e2_sizes"], phantom=phantom, cfg=P["e2_cfg"]))
+            sizes = _remaining(P["e2_sizes"], "e2_epistemic_vs_data", "n_train")
+            if sizes:
+                save("e2_epistemic_vs_data", exp_epistemic_vs_data(
+                    sizes=sizes, phantom=phantom, cfg=P["e2_cfg"],
+                    on_progress=lambda part: save("e2_epistemic_vs_data",
+                                                  _merge(part, "e2_epistemic_vs_data", "n_train"))))
+            else:
+                print("  already complete; skipping")
             print()
 
         if stage in ("all", "e3"):
             print("[E3] calibration, in-distribution and under shift")
             save("e3_calibration", exp_calibration(models, benchmark))
+            print("[E3b] miscalibrated single-model baseline for contrast")
+            save("e3b_calibration_baseline",
+                 exp_calibration_baseline(phantom, benchmark, cfg))
             print()
 
         if stage in ("all", "e4"):
@@ -208,6 +301,9 @@ def main() -> int:
         ("e2_epistemic_vs_data", lambda r: plots.plot_epistemic_vs_data(r, FIGURES)),
         ("e3_calibration", lambda r: (plots.plot_reliability(r, FIGURES),
                                       plots.plot_calibration_under_shift(r, FIGURES))),
+        ("e3b_calibration_baseline",
+         lambda r: plots.plot_calibration_contrast(load("e3_calibration"), r, FIGURES)
+         if load("e3_calibration") else None),
         ("e4_ood", lambda r: plots.plot_ood(r, FIGURES)),
         ("e5_selective", lambda r: plots.plot_risk_coverage(r, FIGURES)),
         ("e6_mc_budget", lambda r: plots.plot_mc_budget(r, FIGURES)),

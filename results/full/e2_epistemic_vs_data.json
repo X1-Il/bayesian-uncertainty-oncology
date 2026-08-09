@@ -1,0 +1,62 @@
+{
+  "_preset": "full",
+  "rows": [
+    {
+      "n_train": 250,
+      "est_epistemic": 0.005348935897819187,
+      "est_aleatoric": 0.5143582962678868,
+      "est_total": 0.5197072321657059,
+      "var_epistemic": 0.001486207186218807,
+      "var_aleatoric": 0.17134951382397412,
+      "target_aleatoric": 0.5133671906284608,
+      "test_error": 0.2724,
+      "target_bayes_error": 0.25575806867986206
+    },
+    {
+      "n_train": 500,
+      "est_epistemic": 0.002731684214266734,
+      "est_aleatoric": 0.4961282930442462,
+      "est_total": 0.49885997725851305,
+      "var_epistemic": 0.0006805329502885055,
+      "var_aleatoric": 0.16308359617573687,
+      "target_aleatoric": 0.5133671906284608,
+      "test_error": 0.2672,
+      "target_bayes_error": 0.25575806867986206
+    },
+    {
+      "n_train": 1000,
+      "est_epistemic": 0.000519582478105985,
+      "est_aleatoric": 0.5285336419477966,
+      "est_total": 0.5290532244259026,
+      "var_epistemic": 0.00018336142789594778,
+      "var_aleatoric": 0.17666208513481468,
+      "target_aleatoric": 0.5133671906284608,
+      "test_error": 0.272,
+      "target_bayes_error": 0.25575806867986206
+    },
+    {
+      "n_train": 2000,
+      "est_epistemic": 0.0023169731575898907,
+      "est_aleatoric": 0.5036401392892758,
+      "est_total": 0.5059571124468657,
+      "var_epistemic": 0.0009592685122615089,
+      "var_aleatoric": 0.16653443051783326,
+      "target_aleatoric": 0.5133671906284608,
+      "test_error": 0.2748,
+      "target_bayes_error": 0.25575806867986206
+    },
+    {
+      "n_train": 4000,
+      "est_epistemic": 0.0003104145355299725,
+      "est_aleatoric": 0.5275217679649038,
+      "est_total": 0.527832182500434,
+      "var_epistemic": 0.0001171066925627811,
+      "var_aleatoric": 0.17595048288602733,
+      "target_aleatoric": 0.5133671906284608,
+      "test_error": 0.2652,
+      "target_bayes_error": 0.25575806867986206
+    }
+  ],
+  "loglog_slope_epistemic_vs_n": -0.8451517174120686,
+  "complete": true
+}

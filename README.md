@@ -85,11 +85,22 @@ bought calibration at the cost of sharpness.
 **Temperature scaling** (`p = softmax(z/T)`, one parameter, fitted on held-out
 NLL) is the default correction for a reason that is provable rather than
 empirical: dividing every logit by the same `T > 0` is strictly monotone, so
-`argmax` — and therefore accuracy — is **exactly preserved**. There is no
-accuracy/calibration trade-off to negotiate. `exp_calibration` asserts this
-invariance at runtime; `tests/test_calibration.py` tests it. `VectorScaler` is
-included as the next rung on the ladder precisely to show what is given up when
-the guarantee is dropped.
+`argmax` — and therefore accuracy — is **exactly preserved**.
+
+That theorem is about *one* softmax, and this is where it is routinely
+over-applied. The predictive distribution of an ensemble is a **mixture**,
+`p = (1/M) Σ_m softmax(z_m)`. Since softmax is non-linear,
+`mean-of-softmax ≠ softmax-of-mean`, so scaling the *averaged* logit calibrates a
+different estimator than the one being reported. `EnsembleTemperatureScaler`
+scales inside the average, `p_T = (1/M) Σ_m softmax(z_m / T)` — and for that
+mixture **the argmax guarantee does not hold**: raising `T` flattens each member
+toward uniform, re-weighting how much each contributes, so the winning class can
+change. We therefore *measure* the accuracy shift
+(`accuracy_shift_from_scaling`) instead of assuming it is zero, while still
+asserting the exact theorem on the single-model object it applies to.
+
+This distinction is not cosmetic: an assertion that demanded exact invariance for
+the mixture aborted a perfectly correct run during development.
 
 ### 4. Selective prediction
 
@@ -141,8 +152,26 @@ between a claim that can be checked and one that merely sounds rigorous.
 possible: sweeping it moves the analytic target along a known curve.
 
 **Shift suite:** noise ×3 severities, blur ×3, a "modality shift" (inverted
-tissue contrast, finer texture, stronger bias field), and a semantic shift
-(ring/rim-enhancing lesion, never seen in training).
+tissue contrast, finer texture, stronger bias field), an unseen annular lesion
+morphology, and a `decoupled` condition.
+
+### An unseen appearance is not an unseen task
+
+The annular morphology was the original candidate for "semantic shift". Measured,
+it isn't one: accuracy there is **0.728 vs 0.733 in-distribution**. The renderer
+still sets lesion amplitude to `lesion_amp * z`, so the signed contrast still
+carries the latent and the network reads it off a ring about as well as off a
+blob. It's a covariate shift wearing a semantic costume — and reporting it as
+semantic would have made E4's central comparison vacuous.
+
+`decoupled` is the corrected version: same unseen shape, but amplitude drawn from
+an *independent* normal. The image then carries no label information,
+`p*(y|x) = 1/2` exactly, and no model can beat chance — so abstention is the only
+correct response. Marginal appearance statistics still match training, which
+isolates the severed image↔label *link* from any change in appearance.
+`tests/test_synthetic.py` asserts the difference directly: under `novel` the
+recovered contrast correlates with `z` (r > 0.4), under `decoupled` it does not
+(r < 0.2).
 
 ---
 
@@ -172,8 +201,36 @@ python main.py --plots-only   # regenerate figures from results/*.json
 pytest tests/ -q
 ```
 
-Results are written to `results/*.json`, figures to `figures/`. Everything is
-deterministic given `--seed`.
+Outputs are **scoped by preset**: `results/full/` and `figures/full/` for
+`--full`, `results/quick/` and `figures/quick/` for `--quick`, and likewise for
+`checkpoints/`. Each JSON also carries a `_preset` stamp.
+
+This is a correctness guard, not tidiness. `--quick` is the default when neither
+flag is given, and the two presets produce structurally identical output that
+differs by an order of magnitude in training budget. Sharing one directory means
+a single stray invocation silently replaces a two-hour study with smoke-test
+numbers, and nothing in the file says which is which. That happened during
+development, and cost a full re-run. `summarize.py` now prints a warning banner
+when reading quick results, and `make_tables.py` refuses to quietly typeset them
+into the paper.
+
+Everything is deterministic given `--seed` — the sweeps reproduce bit-for-bit
+across separate processes.
+
+### Resuming
+
+The full study is a couple of hours on CPU, and E1/E2 train a fresh ensemble per
+sweep point. Those sweeps write partial results after **every** point and skip
+work already on disk, so an interrupted run resumes instead of restarting:
+
+```
+[E1] aleatoric recovery across the label-noise sweep
+  resuming: 3 point(s) already done, 2 to go
+```
+
+Each sweep result carries a `complete` flag, so a partial sweep is never
+mistaken for a finished one. `--load-checkpoints` additionally reuses a trained
+ensemble for E3–E6 rather than retraining it.
 
 ### Using a real dataset
 
@@ -205,9 +262,32 @@ cancer_unc/
   eval/risk_coverage.py    selective risk, AURC, E-AURC, coverage@risk
   experiments.py           E1-E6 + identifiability audit
   train.py, plots.py
-tests/                     43 tests, mostly on mathematical identities
+  experiments.py           E1-E6 + identifiability audit
+  train.py, plots.py
+paper/
+  report.tex               NeurIPS-format write-up
+  make_tables.py           results/*.json -> tables.tex + macros.tex
+tests/                     44 tests, mostly on mathematical identities
 main.py                    CLI
+summarize.py               results/*.json -> RESULTS.md
 ```
+
+## The report
+
+`paper/report.tex` is a NeurIPS-format write-up. Every number in it — tables and
+inline figures in the prose alike — is generated by `paper/make_tables.py` from
+`results/*.json`; nothing is hand-copied, so the paper cannot drift out of sync
+with the code that produced it.
+
+```bash
+python main.py --full          # produce results/
+python paper/make_tables.py    # regenerate tables.tex + macros.tex
+cd paper && pdflatex report && pdflatex report
+```
+
+On Overleaf, start from the official NeurIPS 2024 template and drop `report.tex`,
+`tables.tex`, `macros.tex` and `figures/` in. Without the style file a fallback
+preamble reproduces the layout closely enough to read and page-count.
 
 ## References
 

@@ -82,8 +82,12 @@ class UncertaintyOutput:
     var_aleatoric: np.ndarray  # (N,) E[Var(p|w)]
     var_epistemic: np.ndarray  # (N,) Var[E(p|w)]
     member_probs: np.ndarray  # (N, T, C) per-weight-sample predictives
-    logits: np.ndarray  # (N, C) mean logits, for temperature scaling
+    logits: np.ndarray  # (N, C) mean logits (deterministic pass)
     features: np.ndarray | None = None  # (N, D) penultimate, for Mahalanobis
+    member_logits: np.ndarray | None = None  # (N, T, C) per-sample mean logits
+    """Kept because temperature scaling of a posterior predictive must be
+    applied per sample and re-averaged. Scaling the collapsed mean logit
+    instead silently changes which estimator is being calibrated."""
 
     @property
     def confidence(self) -> np.ndarray:
@@ -157,13 +161,17 @@ def mc_dropout_predict(
 
     n = x.shape[0]
     members: list[np.ndarray] = []
+    member_logits: list[np.ndarray] = []
 
     for _ in range(n_weight_samples):
-        probs_t = []
+        probs_t, logits_t = [], []
         for i in range(0, n, batch_size):
             xb = x[i : i + batch_size].to(device)
-            probs_t.append(model.predict_probs(xb, n_logit_samples).cpu())
+            p, lg = model.predict_probs_and_logits(xb, n_logit_samples)
+            probs_t.append(p.cpu())
+            logits_t.append(lg.cpu())
         members.append(torch.cat(probs_t).numpy())
+        member_logits.append(torch.cat(logits_t).numpy())
 
     # Mean logits and features are taken with dropout *off*: they are used for
     # temperature scaling and Mahalanobis, both of which want the deterministic
@@ -183,6 +191,7 @@ def mc_dropout_predict(
     return UncertaintyOutput(
         probs=member_probs.mean(axis=1),
         member_probs=member_probs,
+        member_logits=np.stack(member_logits, axis=1),
         logits=torch.cat(logits_all).numpy(),
         features=torch.cat(feat_all).numpy() if return_features else None,
         **parts,
@@ -207,20 +216,21 @@ def ensemble_predict(
     approximation, not of one trick.
     """
     n = x.shape[0]
-    members, logit_sum, feat_sum = [], None, None
+    members, member_logits, logit_sum, feat_sum = [], [], None, None
 
     for model in models:
         model.eval()
         probs_m, logits_m, feats_m = [], [], []
         for i in range(0, n, batch_size):
             xb = x[i : i + batch_size].to(next(model.parameters()).device)
-            probs_m.append(model.predict_probs(xb, n_logit_samples).cpu())
-            mean, _ = model(xb)
+            p, mean = model.predict_probs_and_logits(xb, n_logit_samples)
+            probs_m.append(p.cpu())
             logits_m.append(mean.cpu())
             if return_features:
                 feats_m.append(model.embed(xb).cpu())
         members.append(torch.cat(probs_m).numpy())
         lg = torch.cat(logits_m)
+        member_logits.append(lg.numpy())
         logit_sum = lg if logit_sum is None else logit_sum + lg
         if return_features:
             ft = torch.cat(feats_m)
@@ -232,6 +242,7 @@ def ensemble_predict(
     return UncertaintyOutput(
         probs=member_probs.mean(axis=1),
         member_probs=member_probs,
+        member_logits=np.stack(member_logits, axis=1),
         logits=(logit_sum / len(models)).numpy(),
         features=(feat_sum / len(models)).numpy() if return_features else None,
         **parts,

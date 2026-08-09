@@ -7,6 +7,7 @@ from .decomposition import (
     mc_dropout_predict,
 )
 from .calibration import (
+    EnsembleTemperatureScaler,
     TemperatureScaler,
     VectorScaler,
     adaptive_ece,
@@ -36,7 +37,8 @@ from .ood import (
 __all__ = [
     "UncertaintyOutput", "decompose", "ensemble_predict", "entropy",
     "mc_convergence", "mc_dropout_predict",
-    "TemperatureScaler", "VectorScaler", "adaptive_ece", "bootstrap_ci",
+    "EnsembleTemperatureScaler", "TemperatureScaler", "VectorScaler",
+    "adaptive_ece", "bootstrap_ci",
     "brier", "brier_decomposition", "calibration_report", "classwise_ece",
     "ece", "mce", "nll", "reliability",
     "MahalanobisScorer", "aupr", "auroc", "fpr_at_tpr", "ood_report",
